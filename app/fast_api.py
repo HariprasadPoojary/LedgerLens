@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
 
 import pandas as pd
 from fastapi import FastAPI, Request
@@ -110,7 +110,11 @@ class RequestSizeLimitMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] != "/analyze" or scope["method"] != "POST":
+        if (
+            scope["type"] != "http"
+            or scope["path"] not in {"/analyze", "/preview"}
+            or scope["method"] != "POST"
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -242,6 +246,149 @@ def _recent_sessions_html(limit: int = 10) -> str:
 
 
 # ── Analyze ───────────────────────────────────────────────────────────────────
+
+
+@app.post("/preview")
+async def preview_statements(request: Request):
+    """Parse uploads for a preview, removing every temporary CSV before returning."""
+    try:
+        form = await request.form(max_files=const.MAX_UPLOAD_FILES)
+    except MultiPartException:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"Too many files uploaded. The maximum is {const.MAX_UPLOAD_FILES} files per request."},
+        )
+    except HTTPException as exc:
+        if exc.status_code == 400 and "too many files" in str(exc.detail).lower():
+            return JSONResponse(
+                status_code=413,
+                content={"error": f"Too many files uploaded. The maximum is {const.MAX_UPLOAD_FILES} files per request."},
+            )
+        return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
+
+    files = [value for value in form.getlist("files") if isinstance(value, UploadFile)]
+    if not files or all(not file.filename for file in files):
+        await form.close()
+        return JSONResponse(status_code=400, content={"error": "Choose at least one CSV file to preview."})
+
+    invalid_files = [
+        file.filename or "(unnamed file)"
+        for file in files
+        if not file.filename or Path(file.filename).suffix.lower() != ".csv"
+    ]
+    if invalid_files:
+        await form.close()
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Only CSV files are accepted. Invalid file(s): " + ", ".join(invalid_files)},
+        )
+
+    oversized = [
+        file.filename or "(unnamed file)"
+        for file in files
+        if (file.size or 0) > const.MAX_FILE_SIZE_BYTES
+    ]
+    if oversized:
+        await form.close()
+        return JSONResponse(
+            status_code=413,
+            content={
+                "error": (
+                    f"File size limit exceeded. Each CSV must be at most {const.MAX_FILE_SIZE_BYTES} bytes. "
+                    "Oversized file(s): " + ", ".join(oversized)
+                )
+            },
+        )
+
+    date_from_value = form.get("date_from")
+    date_to_value = form.get("date_to")
+    date_from = date_from_value if isinstance(date_from_value, str) else None
+    date_to = date_to_value if isinstance(date_to_value, str) else None
+
+    def parse_date_filter(value: str | None, label: str) -> date | None:
+        if value is None or not value.strip():
+            return None
+        try:
+            parsed = date.fromisoformat(value.strip())
+        except ValueError:
+            raise ValueError(f"{label} must be a valid date in YYYY-MM-DD format.") from None
+        if parsed.isoformat() != value.strip():
+            raise ValueError(f"{label} must be a valid date in YYYY-MM-DD format.")
+        return parsed
+
+    try:
+        start_date = parse_date_filter(date_from, "Start date")
+        end_date = parse_date_filter(date_to, "End date")
+    except ValueError as exc:
+        await form.close()
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    if start_date and end_date and start_date > end_date:
+        await form.close()
+        return JSONResponse(status_code=400, content={"error": "Start date must be on or before end date."})
+
+    preview_id = uuid.uuid4().hex[:10]
+    temp_paths: list[Path] = []
+    try:
+        results = []
+        for index, file in enumerate(files):
+            path = UPLOAD_DIR / f"preview_{preview_id}_{index}.csv"
+            temp_paths.append(path)
+            path.write_bytes(await file.read())
+            try:
+                results.append(parse_csv(str(path)))
+            except Exception as exc:
+                filename = file.filename or "uploaded file"
+                return JSONResponse(
+                    status_code=422,
+                    content={"error": f"Could not preview {filename}: {exc} Check that it is a supported bank statement CSV."},
+                )
+
+        df = results[0].df if len(results) == 1 else merge_statements(results)
+        if start_date:
+            df = df[df["date"] >= pd.Timestamp(start_date)]
+        if end_date:
+            df = df[df["date"] <= pd.Timestamp(end_date)]
+        if df.empty:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "No transactions remain after parsing and applying the selected date range. Change the dates or choose different files."},
+            )
+
+        sample = []
+        for _, row in df.head(5).iterrows():
+            transaction_date = cast(pd.Timestamp, row["date"])
+            transaction_amount = cast(float, row["amount"])
+            sample.append(
+                {
+                    "date": transaction_date.date().isoformat(),
+                    "description": str(row["description"]),
+                    "amount": float(transaction_amount),
+                    "type": str(row["type"]),
+                }
+            )
+        files_preview = [
+            {
+                "name": Path(files[index].filename or result.source_file).name,
+                "detected_columns": result.detected_columns,
+                "transaction_count": result.row_count,
+                "warnings": result.warnings,
+            }
+            for index, result in enumerate(results)
+        ]
+        warnings = [warning for result in results for warning in result.warnings]
+        return JSONResponse(
+            content={
+                "files": files_preview,
+                "transaction_count": len(df),
+                "date_range": [df["date"].min().date().isoformat(), df["date"].max().date().isoformat()],
+                "warnings": warnings,
+                "sample": sample,
+            }
+        )
+    finally:
+        for path in temp_paths:
+            path.unlink(missing_ok=True)
+        await form.close()
 
 
 @app.post("/analyze")

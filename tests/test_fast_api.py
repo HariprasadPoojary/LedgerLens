@@ -79,6 +79,40 @@ def test_analyze_returns_error_and_cleans_upload_after_parse_failure(client, tmp
     assert list((tmp_path / "uploads").iterdir()) == []
 
 
+def test_preview_returns_detected_columns_summary_warnings_and_sample_without_saving(client, tmp_path):
+    response = client.post(
+        "/preview", files={"files": ("statement.csv", VALID_CSV, "text/csv")}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transaction_count"] == 2
+    assert body["date_range"] == ["2024-01-01", "2024-01-05"]
+    assert body["files"][0]["detected_columns"] == {
+        "date": "Date",
+        "description": "PARTICULARS",
+        "debit": "Debit",
+        "credit": "Credit",
+        "balance": "Balance",
+    }
+    assert body["sample"][0]["description"] == "ACH-CR SALARY"
+    assert list((tmp_path / "uploads").iterdir()) == []
+    assert list((tmp_path / "sessions").iterdir()) == []
+    assert list((tmp_path / "reports").iterdir()) == []
+
+
+def test_preview_reports_actionable_parse_errors_and_cleans_upload(client, tmp_path):
+    response = client.post(
+        "/preview",
+        files={"files": ("broken.csv", b"not,a,valid,bank,statement\n", "text/csv")},
+    )
+
+    assert response.status_code == 422
+    assert "Could not preview broken.csv" in response.json()["error"]
+    assert "supported bank statement CSV" in response.json()["error"]
+    assert list((tmp_path / "uploads").iterdir()) == []
+
+
 def test_analyze_success_saves_session_and_report_then_cleans_upload(client, tmp_path):
     response = client.post(
         "/analyze", files={"files": ("statement.CSV", VALID_CSV, "text/csv")}

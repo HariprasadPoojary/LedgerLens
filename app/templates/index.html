@@ -245,6 +245,28 @@
 				flex-direction: column;
 				gap: 8px;
 			}
+			.preview-card {
+				margin-top: 18px;
+				padding: 18px;
+				background: var(--surface);
+				border: 1px solid var(--border);
+				border-radius: 12px;
+			}
+			.preview-card h2,
+			.preview-card h3 { margin: 14px 0 8px; font-size: 0.85rem; }
+			.preview-summary, .preview-file, .preview-warning, .preview-table {
+				font: 0.74rem "DM Mono", monospace;
+				color: var(--muted);
+				line-height: 1.6;
+				overflow-wrap: anywhere;
+			}
+			.preview-file + .preview-file, .preview-warning + .preview-warning { margin-top: 8px; }
+			.preview-table-wrap { overflow-x: auto; }
+			.preview-table { width: 100%; border-collapse: collapse; text-align: left; }
+			.preview-table th, .preview-table td { padding: 7px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+			.preview-actions { display: flex; gap: 10px; }
+			.preview-actions .btn { display: block; margin-top: 14px; }
+			.btn.secondary { background: var(--surface2); box-shadow: none; }
 			.file-item {
 				display: flex;
 				align-items: center;
@@ -469,6 +491,7 @@
 					// drop your bank statements → get insights
 				</p>
 			</div>
+			<div id="selection-panel">
 			<div
 				class="dropzone"
 				id="dropzone"
@@ -497,9 +520,17 @@
 				</div>
 			</div>
 			<div id="file-list"></div>
-			<button class="btn" id="analyze-btn" onclick="submitFiles()">
+			<button class="btn" id="analyze-btn" onclick="previewFiles()">
 				Generate Report →
 			</button>
+			</div>
+			<section id="preview-panel" class="preview-card" hidden aria-live="polite">
+				<div id="preview-content"></div>
+				<div class="preview-actions">
+					<button class="btn secondary" type="button" onclick="backToFiles()">Choose different files</button>
+					<button class="btn" id="confirm-btn" type="button" onclick="submitFiles()">Confirm &amp; Generate Report</button>
+				</div>
+			</section>
 			<div id="progress">
 				<div class="spinner"></div>
 				<div class="progress-steps">
@@ -559,6 +590,7 @@
 			}
 
 			let selectedFiles = [];
+			document.getElementById("analyze-btn").textContent = "Preview selected statements";
 			const zone = document.getElementById("dropzone");
 			zone.addEventListener("dragover", (e) => {
 				e.preventDefault();
@@ -609,9 +641,96 @@
 					.getElementById("analyze-btn")
 					.classList.toggle("visible", selectedFiles.length > 0);
 			}
-			async function submitFiles() {
+			function appendDateFilters(form) {
+				const from = document.getElementById("date-from").value;
+				const to = document.getElementById("date-to").value;
+				if (from) form.append("date_from", from);
+				if (to) form.append("date_to", to);
+			}
+			function backToFiles() {
+				document.getElementById("preview-panel").hidden = true;
+				document.getElementById("selection-panel").hidden = false;
+				document.getElementById("error-box").style.display = "none";
+			}
+			function renderPreview(data) {
+				const content = document.getElementById("preview-content");
+				content.replaceChildren();
+				const summary = document.createElement("p");
+				summary.className = "preview-summary";
+				summary.textContent = `${data.transaction_count} transactions · ${data.date_range[0]} to ${data.date_range[1]} · sample of up to 5 rows`;
+				content.append(summary);
+				for (const file of data.files) {
+					const block = document.createElement("p");
+					block.className = "preview-file";
+					const detected = Object.entries(file.detected_columns)
+						.filter(([, column]) => column)
+						.map(([field, column]) => `${field}: ${column}`).join(" · ");
+					block.textContent = `${file.name} — ${file.transaction_count} parsed rows — columns: ${detected || "none"}`;
+					content.append(block);
+				}
+				if (data.warnings.length) {
+					const heading = document.createElement("h3");
+					heading.textContent = "Parser warnings";
+					content.append(heading);
+					for (const warning of data.warnings) {
+						const item = document.createElement("p");
+						item.className = "preview-warning";
+						item.textContent = `• ${warning}`;
+						content.append(item);
+					}
+				}
+				const heading = document.createElement("h3");
+				heading.textContent = "Transaction sample";
+				content.append(heading);
+				const wrap = document.createElement("div");
+				wrap.className = "preview-table-wrap";
+				const table = document.createElement("table");
+				table.className = "preview-table";
+				const head = table.createTHead().insertRow();
+				for (const label of ["Date", "Description", "Amount", "Type"]) {
+					const th = document.createElement("th");
+					th.textContent = label;
+					head.append(th);
+				}
+				const body = table.createTBody();
+				for (const row of data.sample) {
+					const tr = body.insertRow();
+					for (const value of [row.date, row.description, row.amount.toLocaleString(), row.type]) {
+						tr.insertCell().textContent = value;
+					}
+				}
+				wrap.append(table);
+				content.append(wrap);
+			}
+			async function previewFiles() {
 				if (!selectedFiles.length) return;
 				const btn = document.getElementById("analyze-btn");
+				const progress = document.getElementById("progress");
+				const errorBox = document.getElementById("error-box");
+				btn.disabled = true;
+				progress.style.display = "block";
+				errorBox.style.display = "none";
+				try {
+					const form = new FormData();
+					selectedFiles.forEach((file) => form.append("files", file));
+					appendDateFilters(form);
+					const response = await fetch("/preview", { method: "POST", body: form });
+					const data = await response.json();
+					if (!response.ok) throw new Error(data.error || "Could not preview these files.");
+					renderPreview(data);
+					document.getElementById("selection-panel").hidden = true;
+					document.getElementById("preview-panel").hidden = false;
+				} catch (err) {
+					errorBox.style.display = "block";
+					errorBox.textContent = "⚠ " + err.message;
+				} finally {
+					progress.style.display = "none";
+					btn.disabled = false;
+				}
+			}
+			async function submitFiles() {
+				if (!selectedFiles.length) return;
+				const btn = document.getElementById("confirm-btn");
 				const progress = document.getElementById("progress");
 				const errorBox = document.getElementById("error-box");
 				btn.disabled = true;
@@ -630,10 +749,7 @@
 				}, 900);
 				const form = new FormData();
 				selectedFiles.forEach((f) => form.append("files", f));
-				const df = document.getElementById("date-from").value;
-				const dt = document.getElementById("date-to").value;
-				if (df) form.append("date_from", df);
-				if (dt) form.append("date_to", dt);
+				appendDateFilters(form);
 				try {
 					const res = await fetch("/analyze", {
 						method: "POST",

@@ -70,7 +70,7 @@ This roadmap tracks work from fixing the current application through new spendin
 
 ### 3.1 Preview parsed statements before analysis
 
-- [ ] **Add a parse-preview step.** Show detected columns, transaction count, date range, parser warnings, and a small sample before the user commits to generating a report.
+- [x] **Add a parse-preview step.** Show detected columns, transaction count, date range, parser warnings, and a small sample before the user commits to generating a report.
   - **Done when:** users can confirm a parse or return to choose different files; preview failures show actionable messages; uploaded CSV contents are not persisted beyond the documented local workflow.
 
 ### 3.2 Improve transaction exploration

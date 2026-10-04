@@ -33,6 +33,7 @@ class ParseResult:
     row_count: int
     date_range: tuple  # (min_date, max_date)
     warnings: list[str]  # non-fatal issues found during parsing
+    detected_columns: dict[str, str | None]
 
 
 def _normalize_col_name(name: str) -> str:
@@ -304,6 +305,13 @@ def parse_csv(filepath: str) -> ParseResult:
         row_count=len(normalized),
         date_range=date_range,
         warnings=warnings,
+        detected_columns={
+            "date": date_col,
+            "description": desc_col,
+            "debit": debit_col,
+            "credit": credit_col,
+            "balance": balance_col,
+        },
     )
 
 
