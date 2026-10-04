@@ -10,6 +10,7 @@ Supported formats auto-detected:
     - OFX-style: Date, Name, Amount, Transaction Type
 """
 
+import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,11 +57,12 @@ def _detect_header_row(raw: pd.DataFrame) -> int:
     all_aliases = (
         DATE_ALIASES + DESCRIPTION_ALIASES + DEBIT_ALIASES + CREDIT_ALIASES + BALANCE_ALIASES
     )
+    normalized_aliases = {alias.lower() for alias in all_aliases}
 
     best_row, best_score = 0, 0
     for i in range(min(10, len(raw))):
         row_values = [str(v).strip().lower() for v in raw.iloc[i].values]
-        score = sum(1 for v in row_values if v in all_aliases)
+        score = sum(1 for v in row_values if v in normalized_aliases)
         if score > best_score:
             best_score, best_row = score, i
 
@@ -114,7 +116,10 @@ def _load_raw_csv(filepath: str) -> pd.DataFrame:
     """Load CSV with encoding detection, comma-delimited."""
     for encoding in ("utf-8", "latin-1", "cp1252"):
         try:
-            df = pd.read_csv(filepath, encoding=encoding, delimiter=",", on_bad_lines="skip")
+            with open(filepath, encoding=encoding, newline="") as source:
+                rows = list(csv.reader(source))
+            width = max((len(row) for row in rows), default=0)
+            df = pd.DataFrame([row + [None] * (width - len(row)) for row in rows])
             if len(df.columns) > 2:
                 df.columns = [str(c).strip() for c in df.columns]
                 return df
@@ -161,8 +166,16 @@ def _build_normalized_df(
             # Both columns present. Different banks use different semantics:
             # - "standard": Credit column contains incoming funds, Debit contains outgoing.
             # - "reversed": Debit column contains incoming funds (Axis style DR=credit).
-            debits = df[debit_col].apply(_parse_amount).fillna(0)
-            credits = df[credit_col].apply(_parse_amount).fillna(0)
+            debits = df[debit_col].apply(_parse_amount).map(
+                lambda value: abs(value) if pd.notna(value) else 0
+            )
+            credits = df[credit_col].apply(_parse_amount).map(
+                lambda value: abs(value) if pd.notna(value) else 0
+            )
+            has_amount = (
+                df[debit_col].apply(_parse_amount).notna()
+                | df[credit_col].apply(_parse_amount).notna()
+            )
 
             # Default to standard orientation (credits positive). If a balance
             # column exists, use balance deltas to detect orientation automatically.
@@ -194,6 +207,7 @@ def _build_normalized_df(
             else:
                 # Reversed (Axis-like): amount = debits - credits
                 result["amount"] = debits - credits
+            result.loc[~has_amount, "amount"] = None
 
             # Determine type purely from computed amount
             def sign_type(x):

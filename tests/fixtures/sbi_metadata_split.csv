@@ -1,0 +1,9 @@
+Statement,Sample account statement
+Period,01 Jan 2024 to 05 Jan 2024
+
+Tran Date,Details,Debit,Credit,Balance
+01/01/2024,NEFT salary credit,,"₹50,000",50000
+02/01/2024,UPI/merchant purchase,450,,49550
+not-a-date,UPI/invalid date,100,,49450
+04/01/2024,UPI/missing amount,,,49450
+05/01/2024,NEFT refund,,"1,200",50750

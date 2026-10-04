@@ -1,0 +1,5 @@
+Tran Date,Details,CR,DR,BAL
+2024-04-01,NEFT salary,60000,,60000
+2024-04-02,UPI/merchant purchase,,1250,58750
+2024-04-03,IMPS transfer received,5000,,63750
+2024-04-04,ATM cash withdrawal,,2000,61750

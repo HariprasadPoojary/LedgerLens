@@ -10,10 +10,93 @@ Covers:
   - Error cases: empty file, missing columns
 """
 
+from datetime import datetime
+from pathlib import Path
+from typing import cast
+
 import pytest
 from conftest import METADATA_ROWS_CSV, SPLIT_CREDIT_DEBIT_CSV, STANDARD_CSV, write_csv
 
 from app.parser import merge_statements, parse_csv
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize(
+    "fixture_name, expected, expected_warnings",
+    [
+        (
+            "sbi_metadata_split.csv",
+            [
+                ("2024-01-01", "NEFT salary credit", 50000.0, "credit"),
+                ("2024-01-02", "UPI/merchant purchase", -450.0, "debit"),
+                ("2024-01-05", "NEFT refund", 1200.0, "credit"),
+            ],
+            [
+                "Skipped 3 metadata row(s) before header.",
+                "1 rows had unparseable dates and were dropped.",
+                "2 rows dropped due to missing date or amount.",
+            ],
+        ),
+        (
+            "axis_reversed_columns.csv",
+            [
+                ("2024-04-01", "NEFT salary", 60000.0, "credit"),
+                ("2024-04-02", "UPI/merchant purchase", -1250.0, "debit"),
+                ("2024-04-03", "IMPS transfer received", 5000.0, "credit"),
+                ("2024-04-04", "ATM cash withdrawal", -2000.0, "debit"),
+            ],
+            [],
+        ),
+        (
+            "debit_credit_aliases.csv",
+            [
+                ("2024-05-10", "UPI grocery purchase", -2450.0, "debit"),
+                ("2024-05-11", "Salary credit", 100000.0, "credit"),
+                ("2024-05-12", "Card payment", -3200.0, "debit"),
+            ],
+            [],
+        ),
+    ],
+)
+def test_anonymized_bank_fixtures(fixture_name, expected, expected_warnings):
+    result = parse_csv(str(FIXTURE_DIR / fixture_name))
+
+    actual = [
+        (cast(datetime, row.date).strftime("%Y-%m-%d"), row.description, row.amount, row.type)
+        for row in result.df.itertuples(index=False)
+    ]
+    assert actual == expected
+    assert result.row_count == len(expected)
+    assert result.warnings == expected_warnings
+
+
+def test_ambiguous_slash_date_uses_day_first_convention(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "ambiguous.csv",
+        "Date,PARTICULARS,Debit,Credit\n01/02/2024,UPI purchase,100,",
+    )
+
+    result = parse_csv(str(path))
+
+    assert result.df.iloc[0]["date"].strftime("%Y-%m-%d") == "2024-02-01"
+
+
+def test_all_invalid_dates_returns_warning_and_empty_transactions(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "invalid-date.csv",
+        "Date,PARTICULARS,Debit,Credit\nnot-a-date,UPI purchase,100,",
+    )
+
+    result = parse_csv(str(path))
+
+    assert result.df.empty
+    assert result.warnings == [
+        "1 rows had unparseable dates and were dropped.",
+        "1 rows dropped due to missing date or amount.",
+    ]
 
 # ── Column detection ──────────────────────────────────────────────────────────
 

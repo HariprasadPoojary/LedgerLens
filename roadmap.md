@@ -63,7 +63,7 @@ This roadmap tracks work from fixing the current application through new spendin
 
 ### 2.5 Build a dependable parser regression set
 
-- [ ] **Add anonymized Indian bank CSV fixtures and parser tests.** Include representative header aliases, metadata rows, date and amount formats, debit/credit conventions, balance columns, and malformed rows without real personal or account data.
+- [x] **Add anonymized Indian bank CSV fixtures and parser tests.** Include representative header aliases, metadata rows, date and amount formats, debit/credit conventions, balance columns, and malformed rows without real personal or account data.
   - **Done when:** each fixture has expected normalized transactions and warnings, tests cover ambiguous or invalid inputs, and fixture provenance/format notes are documented.
 
 ## 3. Polish the existing workflow
