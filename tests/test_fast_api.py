@@ -1,6 +1,7 @@
 """HTTP route coverage with all writable app data redirected to pytest temp dirs."""
 
 import pickle
+import os
 
 import pandas as pd
 import pytest
@@ -310,3 +311,58 @@ def test_rules_api_reports_invalid_save_payload(client, body):
 
     assert response.status_code == 400
     assert "error" in response.json()
+
+
+def test_rules_api_names_invalid_pattern_and_preserves_saved_rules(client):
+    existing = [{"category": "Dining", "patterns": ["Cafe"], "txn_type": "debit"}]
+    assert client.post("/api/rules", json=existing).status_code == 200
+
+    response = client.post(
+        "/api/rules",
+        json=[{"category": "Dining", "patterns": ["re:[invalid"], "txn_type": "debit"}],
+    )
+
+    assert response.status_code == 400
+    assert "Dining" in response.json()["error"]
+    assert "re:[invalid" in response.json()["error"]
+    assert client.get("/api/rules").json() == existing
+
+
+def test_cleanup_expired_artifacts_removes_only_old_app_artifacts(client, tmp_path, monkeypatch):
+    import app.fast_api as fast_api
+
+    retention = const.ARTIFACT_RETENTION_DAYS * 24 * 60 * 60
+    now = 2_000_000_000
+    artifact_root = tmp_path / "cleanup"
+    sessions = artifact_root / "sessions"
+    reports = artifact_root / "reports"
+    sessions.mkdir(parents=True)
+    reports.mkdir()
+    monkeypatch.setattr(fast_api, "SESSION_DIR", sessions)
+    monkeypatch.setattr(fast_api, "REPORT_DIR", reports)
+
+    old_id = "a" * 10
+    recent_id = "b" * 10
+    old_session = sessions / f"{old_id}.pkl"
+    recent_session = sessions / f"{recent_id}.pkl"
+    old_report = reports / f"report_{old_id}.html"
+    recent_report = reports / f"report_{recent_id}.html"
+    malformed_old_session = sessions / f"{'c' * 10}.pkl"
+    unrelated_old_file = sessions / "user-notes.pkl"
+    for path in (old_session, recent_session, old_report, recent_report, malformed_old_session, unrelated_old_file):
+        path.write_text("artifact", encoding="utf-8")
+    os.utime(old_session, (now - retention - 1, now - retention - 1))
+    os.utime(old_report, (now - retention - 1, now - retention - 1))
+    os.utime(malformed_old_session, (now - retention - 1, now - retention - 1))
+    os.utime(unrelated_old_file, (now - retention - 1, now - retention - 1))
+    os.utime(recent_session, (now - retention + 1, now - retention + 1))
+    os.utime(recent_report, (now - retention + 1, now - retention + 1))
+
+    fast_api.cleanup_expired_artifacts(now=now)
+
+    assert not old_session.exists()
+    assert not old_report.exists()
+    assert not malformed_old_session.exists()
+    assert recent_session.exists()
+    assert recent_report.exists()
+    assert unrelated_old_file.exists()

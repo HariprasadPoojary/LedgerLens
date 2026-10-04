@@ -10,45 +10,10 @@ Pattern syntax (what users type in the UI):
 Order of prefixes is always: re: first, case: second.
 """
 
-import re
-
 import pandas as pd
 
+from app.rule_patterns import pattern_to_regex
 from app.rules_store import get_rules
-
-
-def pattern_to_regex(pattern: str) -> re.Pattern:
-    """
-    Compile a user-facing pattern string into a compiled regex.
-
-    Handles four modes based on prefix:
-        - Plain text  → re.escape() + case-insensitive
-        - case:       → re.escape() + case-sensitive
-        - re:         → raw regex + case-insensitive
-        - re:case:    → raw regex + case-sensitive
-    """
-    raw_mode = False
-    case_sensitive = False
-
-    if pattern.startswith("re:"):
-        raw_mode = True
-        pattern = pattern[3:]
-
-    if pattern.startswith("case:"):
-        case_sensitive = True
-        pattern = pattern[5:]
-
-    if pattern.startswith("re:case:"):
-        raw_mode = True
-        case_sensitive = True
-        pattern = pattern[8:]
-
-    flags = 0 if case_sensitive else re.IGNORECASE
-
-    if not raw_mode:
-        pattern = re.escape(pattern)
-
-    return re.compile(pattern, flags)
 
 
 def _compile_rules(rules: list[tuple]) -> list[tuple]:
@@ -57,11 +22,7 @@ def _compile_rules(rules: list[tuple]) -> list[tuple]:
     for category, patterns, txn_type in rules:
         compiled_patterns = []
         for p in patterns:
-            try:
-                compiled_patterns.append(pattern_to_regex(p))
-            except re.error as e:
-                # Bad regex — skip silently rather than crashing the whole run
-                print(f"[categorizer] Invalid pattern '{p}' in '{category}': {e}")
+            compiled_patterns.append(pattern_to_regex(p))
         compiled.append((category, compiled_patterns, txn_type))
     return compiled
 

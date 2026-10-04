@@ -16,10 +16,13 @@ Routes:
 import json
 import pickle
 import re
+import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
+from typing import AsyncIterator
 
 import pandas as pd
 from fastapi import FastAPI, Request
@@ -53,7 +56,51 @@ TEMPLATES_DIR = BASE_DIR / "app" / "templates"
 for d in (UPLOAD_DIR, REPORT_DIR, SESSION_DIR, DATA_DIR):
     d.mkdir(exist_ok=True)
 
-app = FastAPI(title="Financial Analyzer")
+def cleanup_expired_artifacts(now: float | None = None) -> None:
+    """Remove expired app-generated sessions and reports from their own folders."""
+    cutoff = (time.time() if now is None else now) - const.ARTIFACT_RETENTION_DAYS * 86400
+    session_pattern = re.compile(r"(?:[0-9a-f]{10}|[0-9a-f]{32})\.pkl")
+    report_pattern = re.compile(r"report_(?:[0-9a-f]{10}|[0-9a-f]{32})\.html")
+
+    if SESSION_DIR.is_dir():
+        for session_path in SESSION_DIR.iterdir():
+            if not session_pattern.fullmatch(session_path.name) or not session_path.is_file():
+                continue
+            try:
+                expired = session_path.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if expired:
+                session_id = session_path.stem
+                try:
+                    session_path.unlink(missing_ok=True)
+                except OSError:
+                    continue
+                matching_report = REPORT_DIR / f"report_{session_id}.html"
+                try:
+                    matching_report.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    if REPORT_DIR.is_dir():
+        for report_path in REPORT_DIR.iterdir():
+            if not report_pattern.fullmatch(report_path.name) or not report_path.is_file():
+                continue
+            try:
+                if report_path.stat().st_mtime < cutoff:
+                    report_path.unlink(missing_ok=True)
+            except OSError:
+                continue
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Run retention cleanup at startup, outside active request handling."""
+    cleanup_expired_artifacts()
+    yield
+
+
+app = FastAPI(title="Financial Analyzer", lifespan=lifespan)
 
 
 class RequestSizeLimitMiddleware:

@@ -9,9 +9,11 @@ on the next analysis run without restarting the server.
 """
 
 import json
+import re
 from pathlib import Path
 
 from app.const import CATEGORY_RULES
+from app.rule_patterns import pattern_to_regex
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 RULES_FILE = DATA_DIR / "rules.json"
@@ -46,16 +48,37 @@ def save_rules(rules: list[dict]) -> None:
     Persist rules to data/rules.json.
     rules: list of {"category": str, "patterns": [str], "txn_type": str}
     """
+    if not isinstance(rules, list):
+        raise ValueError("Rules must be a list.")
+
+    normalized: list[dict[str, str | list[str]]] = []
+    for index, rule in enumerate(rules, start=1):
+        if not isinstance(rule, dict):
+            raise ValueError(f"Rule {index} must be an object.")
+        category = rule.get("category")
+        if not isinstance(category, str) or not category.strip():
+            raise ValueError(f"Rule {index} must have a non-empty category.")
+        patterns = rule.get("patterns", [])
+        if not isinstance(patterns, list) or any(not isinstance(p, str) for p in patterns):
+            raise ValueError(f"Patterns for rule '{category}' must be a list of strings.")
+        for pattern in patterns:
+            try:
+                pattern_to_regex(pattern)
+            except (re.error, ValueError, TypeError) as error:
+                raise ValueError(
+                    f"Rule '{category}' has invalid pattern '{pattern}': {error}"
+                ) from None
+        txn_type = rule.get("txn_type", "both")
+        if txn_type not in ("credit", "debit", "both"):
+            txn_type = "both"
+        normalized.append(
+            {"category": category.strip(), "patterns": patterns, "txn_type": txn_type}
+        )
+
     DATA_DIR.mkdir(exist_ok=True)
-    # Basic validation
-    for r in rules:
-        if not r.get("category"):
-            raise ValueError("Each rule must have a 'category'.")
-        if not isinstance(r.get("patterns", []), list):
-            raise ValueError(f"Patterns for '{r['category']}' must be a list.")
-        if r.get("txn_type") not in ("credit", "debit", "both"):
-            r["txn_type"] = "both"
-    RULES_FILE.write_text(json.dumps(rules, indent=2, ensure_ascii=False), encoding="utf-8")
+    RULES_FILE.write_text(
+        json.dumps(normalized, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def reset_to_defaults() -> None:

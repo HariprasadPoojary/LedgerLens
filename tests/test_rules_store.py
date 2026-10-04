@@ -139,6 +139,21 @@ class TestSaveRules:
         with pytest.raises(ValueError, match="[Pp]attern"):
             save_rules([{"category": "X", "patterns": "not-a-list", "txn_type": "both"}])
 
+    def test_non_string_pattern_raises_with_rule_name(self, tmp_rules_file):
+        with pytest.raises(ValueError, match="Patterns for rule 'Dining'"):
+            save_rules([{"category": "Dining", "patterns": [42], "txn_type": "debit"}])
+
+    def test_invalid_regex_raises_with_rule_and_pattern(self, tmp_rules_file):
+        with pytest.raises(ValueError, match="Dining.*re:\[invalid"):
+            save_rules([{"category": "Dining", "patterns": ["re:[invalid"], "txn_type": "debit"}])
+
+    def test_invalid_save_does_not_overwrite_existing_rules(self, tmp_rules_file):
+        existing = [{"category": "Dining", "patterns": ["Cafe"], "txn_type": "debit"}]
+        save_rules(existing)
+        with pytest.raises(ValueError):
+            save_rules([{"category": "Dining", "patterns": ["re:[invalid"], "txn_type": "debit"}])
+        assert get_rules_as_dicts() == existing
+
     def test_invalid_txn_type_defaults_to_both(self, tmp_rules_file):
         save_rules([{"category": "X", "patterns": [], "txn_type": "invalid"}])
         loaded = get_rules()

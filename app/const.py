@@ -10,6 +10,9 @@ MAX_UPLOAD_FILES = 10
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MAX_REQUEST_SIZE_BYTES = 50 * 1024 * 1024
 
+# Expire local session pickles and generated reports after this many days.
+ARTIFACT_RETENTION_DAYS = 180
+
 # ── Category rules: (category, [patterns], transaction_type) ──────────────────
 #
 # Pattern syntax:

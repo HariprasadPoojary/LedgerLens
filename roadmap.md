@@ -53,12 +53,12 @@ This roadmap tracks work from fixing the current application through new spendin
 
 ### 2.3 Clean up expired local artifacts
 
-- [ ] **Add configurable retention for sessions and reports.** Remove expired session pickles and matching generated reports; keep cleanup separate from active request data and never delete source files outside the app's own storage directories.
+- [x] **Add configurable retention for sessions and reports.** Remove expired session pickles and matching generated reports; keep cleanup separate from active request data and never delete source files outside the app's own storage directories.
   - **Done when:** cleanup has a documented retention setting, tests prove old artifacts are removed and recent artifacts are preserved, and cleanup handles missing or malformed files safely.
 
 ### 2.4 Make rule errors actionable
 
-- [ ] **Validate rules before saving and report pattern errors in the UI.** Detect invalid regex syntax and malformed rule structures rather than silently skipping a broken pattern during categorization.
+- [x] **Validate rules before saving and report pattern errors in the UI.** Detect invalid regex syntax and malformed rule structures rather than silently skipping a broken pattern during categorization.
   - **Done when:** invalid rule submissions return a useful validation message naming the affected rule/pattern, valid rules continue to load, and the settings page displays the error without discarding the user's edits.
 
 ### 2.5 Build a dependable parser regression set
