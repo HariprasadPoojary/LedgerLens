@@ -75,6 +75,24 @@
 			.home-link:hover {
 				background: var(--surface);
 			}
+			.report-actions {
+				display: flex;
+				gap: 8px;
+				flex-wrap: wrap;
+			}
+			.report-action {
+				background: var(--surface2);
+				border: 1px solid var(--border);
+				border-radius: 7px;
+				color: var(--text);
+				cursor: pointer;
+				font: inherit;
+				font-size: 0.85rem;
+				font-weight: 600;
+				padding: 8px 14px;
+				text-decoration: none;
+				white-space: nowrap;
+			}
 			.badge {
 				display: inline-block;
 				padding: 2px 10px;
@@ -303,6 +321,41 @@
 					font-size: 1.3rem;
 				}
 			}
+			@media print {
+				@page { size: A4; margin: 12mm; }
+				:root {
+					--bg: #fff;
+					--surface: #fff;
+					--surface2: #f1f5f9;
+					--border: #cbd5e1;
+					--text: #0f172a;
+					--muted: #475569;
+					--green: #047857;
+					--red: #b91c1c;
+					--indigo: #4338ca;
+					--amber: #b45309;
+				}
+				body { padding: 0; font-size: 10pt; print-color-adjust: exact; }
+				.report-actions, .filter-bar, #txn-count, #txn-empty { display: none !important; }
+				.header, .kpi-grid, .chart-grid { break-inside: avoid; }
+				.chart-grid-2 { grid-template-columns: 1fr 1fr; }
+				.chart-card { background: #fff; }
+				.pdf-chart-source { display: none !important; }
+				.pdf-chart-image { display: block; width: 100%; height: auto; }
+				.table-card { overflow: visible; }
+				.table-card h2 { break-after: avoid; }
+				table { min-width: 0 !important; width: 100%; font-size: 8pt; }
+				thead { display: table-header-group; }
+				tr { break-inside: avoid; }
+				#txn-table td[title] {
+					max-width: none !important;
+					white-space: normal !important;
+					overflow: visible !important;
+					text-overflow: clip !important;
+				}
+				#txn-table tbody tr { display: table-row !important; }
+				a { color: inherit; }
+			}
 		</style>
 	</head>
 	<body>
@@ -318,7 +371,11 @@
 					>
 				</p>
 			</div>
-			<a class="home-link" href="/">Back to Home</a>
+			<div class="report-actions">
+				<button class="report-action" type="button" onclick="downloadTransactionsCsv()">Download CSV</button>
+				<button class="report-action" type="button" onclick="downloadPdf()">Download PDF</button>
+				<a class="report-action" href="/">Back to Home</a>
+			</div>
 		</div>
 
 		{% if result.warnings %}
@@ -640,6 +697,90 @@
 
 		<script>
 			let txnSort = { key: null, direction: "asc" };
+
+			async function downloadPdf() {
+				const charts = Array.from(document.querySelectorAll(".js-plotly-plot"));
+				const originals = charts.map((chart) => ({
+					chart,
+					data: chart.data,
+					layout: JSON.parse(JSON.stringify(chart.layout)),
+					config: chart._context,
+				}));
+				const images = [];
+				try {
+					for (const { chart } of originals) {
+						await Plotly.relayout(chart, {
+							font: { color: "#0f172a" },
+							paper_bgcolor: "#ffffff",
+							plot_bgcolor: "#ffffff",
+							"xaxis.gridcolor": "#e2e8f0",
+							"xaxis.linecolor": "#64748b",
+							"xaxis.tickcolor": "#64748b",
+							"yaxis.gridcolor": "#e2e8f0",
+							"yaxis.linecolor": "#64748b",
+							"yaxis.tickcolor": "#64748b",
+							"legend.font.color": "#0f172a",
+						});
+						await Plotly.Plots.resize(chart);
+						const imageUrl = await Plotly.toImage(chart, {
+							format: "png",
+							width: Math.max(chart.clientWidth, 800),
+							height: Math.max(chart.clientHeight, 280),
+							scale: 2,
+						});
+						const image = document.createElement("img");
+						image.className = "pdf-chart-image";
+						image.alt = "Report chart";
+						image.src = imageUrl;
+						chart.classList.add("pdf-chart-source");
+						chart.parentElement.appendChild(image);
+						images.push(image);
+					}
+					await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+					window.print();
+				} catch (error) {
+					console.error("Could not prepare report charts for PDF export", error);
+					alert("The PDF could not be prepared. Please try again.");
+				} finally {
+					images.forEach((image) => image.remove());
+					for (const original of originals) {
+						original.chart.classList.remove("pdf-chart-source");
+						await Plotly.react(
+							original.chart,
+							original.data,
+							original.layout,
+							original.config,
+						);
+					}
+				}
+			}
+
+			function downloadTransactionsCsv() {
+				const escapeCsv = (value) => `"${String(value).replaceAll('"', '""')}"`;
+				const safeText = (value) => {
+					const text = String(value);
+					return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+				};
+				const rows = [["date", "description", "amount", "type", "category"]];
+				document.querySelectorAll("#txn-table tbody tr").forEach((row) => {
+					if (row.style.display === "none") return;
+					const cells = row.querySelectorAll("td");
+					rows.push([
+						safeText(cells[0].textContent.trim()),
+						safeText(cells[1].getAttribute("title") || cells[1].textContent.trim()),
+						row.dataset.amount,
+						safeText(row.dataset.type),
+						safeText(row.dataset.cat),
+					]);
+				});
+				const csv = "\uFEFF" + rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+				const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = "financial-transactions.csv";
+				link.click();
+				URL.revokeObjectURL(url);
+			}
 
 			function filterTable() {
 				const search = document

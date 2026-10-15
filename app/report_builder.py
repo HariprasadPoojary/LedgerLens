@@ -16,7 +16,7 @@ from jinja2 import Environment, select_autoescape
 
 from app.analyzer import AnalysisResult
 
-REPORT_VERSION = "3"
+REPORT_VERSION = "5"
 
 # ── Color palette ─────────────────────────────────────────────────────────────
 

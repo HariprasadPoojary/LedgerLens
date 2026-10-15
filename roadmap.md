@@ -78,10 +78,10 @@ This roadmap tracks work from fixing the current application through new spendin
 - [x] **Add report table filters and sorting.** Support filtering by category, date range, amount direction, and text; allow sorting useful columns.
   - **Done when:** filters can be combined, clearing filters restores all rows, empty results are explained, and the table remains usable on narrow screens.
 
-### 3.3 Export analyzed transactions
+### 3.3 Export analyzed transactions and reports
 
-- [ ] **Add a categorized CSV download.** Export the normalized date, description, amount, type, and category fields for the current report.
-  - **Done when:** exported rows match the analyzed report and any selected date/category filters are applied consistently; CSV values are safely encoded for spreadsheet use.
+- [x] **Add categorized CSV and PDF downloads.** Export the normalized date, description, amount, type, and category fields for the current report; offer a print-ready PDF copy of the full report, including summaries, charts, and all transactions.
+  - **Done when:** CSV exports match the visible transaction rows and active filters, values are safely encoded for spreadsheet use, and the full report can be saved as a PDF from the browser print dialog.
 
 ### 3.4 Reuse manual categorization decisions
 
