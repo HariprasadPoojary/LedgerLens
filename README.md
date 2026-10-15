@@ -1,4 +1,6 @@
-# AI Financial Report
+# LedgerLens — Local Financial Statement Analyzer
+
+> Drop your bank statements → get deterministic, rule-based insights (offline, no external services)
 
 An intelligent financial statement analyzer that automatically categorizes bank transactions and generates comprehensive HTML reports. Built with FastAPI, this tool helps you understand your spending patterns by categorizing transactions using customizable rule-based patterns.
 
@@ -46,7 +48,7 @@ Or visit the [uv Installation Guide](https://docs.astral.sh/uv/getting-started/i
 
 ```bash
 git clone <repository-url>
-cd AI-Financial-Report
+cd LedgerLens
 ```
 
 #### 3. Create and Activate Virtual Environment
@@ -124,7 +126,7 @@ analysis = analyze(df)
 ## 📁 Project Structure
 
 ```
-AI-Financial-Report/
+LedgerLens/
 ├── app/                              # Main application package
 │   ├── analyzer.py                   # Transaction analysis logic
 │   ├── categorizer.py                # Transaction categorization
