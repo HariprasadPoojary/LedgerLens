@@ -8,11 +8,15 @@ Output: single .html file that works offline.
 
 from pathlib import Path
 
+import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
+from plotly.offline import get_plotlyjs
 from jinja2 import Environment, select_autoescape
 
 from app.analyzer import AnalysisResult
+
+REPORT_VERSION = "3"
 
 # ── Color palette ─────────────────────────────────────────────────────────────
 
@@ -233,6 +237,11 @@ def generate_report(
         for _, row in result.transactions.iterrows()
         if row["category"] in ("Other", "Other Income")
     )
+    table_transactions = result.transactions.copy()
+    table_transactions["date_iso"] = pd.to_datetime(table_transactions["date"]).dt.strftime(
+        "%Y-%m-%d"
+    )
+    table_categories = sorted(table_transactions["category"].dropna().unique())
 
     env = Environment(autoescape=select_autoescape(["html"]))
     template = env.from_string(
@@ -241,6 +250,10 @@ def generate_report(
 
     html = template.render(
         result=result,
+        report_version=REPORT_VERSION,
+        plotly_js=get_plotlyjs(),
+        table_transactions=table_transactions,
+        table_categories=table_categories,
         pie_chart=_chart_spending_pie(result),
         monthly_chart=_chart_monthly_bar(result),
         daily_chart=_chart_daily_trend(result),

@@ -35,7 +35,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.analyzer import analyze
 from app.categorizer import categorize_dataframe
 from app.parser import merge_statements, parse_csv
-from app.report_builder import generate_report
+from app.report_builder import REPORT_VERSION, generate_report
 from app.rules_store import (
     get_category_names,
     get_rules_as_dicts,
@@ -559,7 +559,21 @@ def get_report(session_id: str):
             "<h2 style='font-family:sans-serif;padding:40px'>Report not found.</h2>",
             status_code=404,
         )
-    return FileResponse(path, media_type="text/html")
+
+    report_version_marker = (
+        f'<meta name="financial-analyzer-report-version" content="{REPORT_VERSION}"'
+    )
+    if report_version_marker not in path.read_text(encoding="utf-8"):
+        data = _load_session(session_id)
+        if isinstance(data, dict) and "df" in data and "warnings" in data:
+            analysis = analyze(data["df"], data["warnings"])
+            generate_report(analysis, str(path), session_id=session_id)
+
+    return FileResponse(
+        path,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.delete("/api/sessions/{session_id}")

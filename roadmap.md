@@ -75,7 +75,7 @@ This roadmap tracks work from fixing the current application through new spendin
 
 ### 3.2 Improve transaction exploration
 
-- [ ] **Add report table filters and sorting.** Support filtering by category, date range, amount direction, and text; allow sorting useful columns.
+- [x] **Add report table filters and sorting.** Support filtering by category, date range, amount direction, and text; allow sorting useful columns.
   - **Done when:** filters can be combined, clearing filters restores all rows, empty results are explained, and the table remains usable on narrow screens.
 
 ### 3.3 Export analyzed transactions

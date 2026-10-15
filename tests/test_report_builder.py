@@ -108,11 +108,40 @@ class TestReportContent:
         assert "&lt;div" not in report_html
         assert "&lt;script" not in report_html
 
+    def test_plotly_is_bundled_for_offline_reports(self, report_html):
+        assert 'src="https://cdn.plot.ly/' not in report_html
+        assert "Plotly.newPlot" in report_html
+
     def test_parser_warning_shown(self, report_html):
         assert "Test parser warning" in report_html
 
     def test_transaction_table_present(self, report_html):
         assert "txn-table" in report_html or "All Transactions" in report_html
+
+    def test_transaction_exploration_controls_present(self, report_html):
+        assert 'id="txn-date-from"' in report_html
+        assert 'id="txn-date-to"' in report_html
+        assert 'id="txn-direction"' in report_html
+        assert 'data-sort="amount"' in report_html
+        assert "clearTableFilters" in report_html
+        assert "No transactions match these filters" in report_html
+
+    def test_filter_data_uses_iso_dates_and_every_transaction_category(
+        self, analysis_result, tmp_path
+    ):
+        analysis_result.transactions.loc[len(analysis_result.transactions)] = [
+            "11 Feb 2024",
+            "REFUND",
+            50.0,
+            "credit",
+            "Other Income",
+        ]
+        out = str(tmp_path / "r.html")
+        generate_report(analysis_result, out)
+        html = Path(out).read_text(encoding="utf-8")
+
+        assert 'data-date="2024-02-11"' in html
+        assert '<option value="Other Income">Other Income</option>' in html
 
     def test_category_summary_present(self, report_html):
         assert "Category Summary" in report_html or "CATEGORY SUMMARY" in report_html

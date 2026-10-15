@@ -3,10 +3,11 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="financial-analyzer-report-version" content="{{ report_version }}" />
 		<title>
 			Financial Report — {{ result.date_from }} to {{ result.date_to }}
 		</title>
-		<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+		<script>{{ plotly_js | safe }}</script>
 		<style>
 			*,
 			*::before,
@@ -153,6 +154,9 @@
 				margin-bottom: 24px;
 				overflow-x: auto;
 			}
+			#txn-table {
+				min-width: 680px;
+			}
 			table {
 				width: 100%;
 				border-collapse: collapse;
@@ -215,6 +219,48 @@
 			.filter-bar input {
 				flex: 1;
 				min-width: 180px;
+			}
+			.filter-bar input[type="date"] {
+				flex: 0 1 auto;
+				min-width: 145px;
+			}
+			.sr-only {
+				position: absolute;
+				width: 1px;
+				height: 1px;
+				padding: 0;
+				margin: -1px;
+				overflow: hidden;
+				clip: rect(0, 0, 0, 0);
+				white-space: nowrap;
+				border: 0;
+			}
+			.filter-bar button,
+			.sort-button {
+				background: var(--surface2);
+				border: 1px solid var(--border);
+				border-radius: 7px;
+				color: var(--text);
+				cursor: pointer;
+				font: inherit;
+			}
+			.filter-bar button {
+				padding: 7px 12px;
+			}
+			.sort-button {
+				padding: 0;
+				text-transform: inherit;
+				letter-spacing: inherit;
+				font-size: inherit;
+				font-weight: inherit;
+				color: inherit;
+				border: 0;
+				background: transparent;
+				white-space: nowrap;
+			}
+			.sort-button:hover,
+			.filter-bar button:hover {
+				color: var(--indigo);
 			}
 
 			/* Warnings */
@@ -501,37 +547,49 @@
 				<input
 					type="text"
 					id="txn-search"
-					placeholder="Search description..."
+					placeholder="Search transactions..."
+					aria-label="Search transactions"
 					oninput="filterTable()"
 				/>
+				<label class="sr-only" for="txn-date-from">From date</label>
+				<input type="date" id="txn-date-from" aria-label="From date" onchange="filterTable()" />
+				<label class="sr-only" for="txn-date-to">To date</label>
+				<input type="date" id="txn-date-to" aria-label="To date" onchange="filterTable()" />
 				<select id="txn-cat" onchange="filterTable()">
 					<option value="">All Categories</option>
-					{% for c in result.by_category %}
-					<option value="{{ c.category }}">{{ c.category }}</option>
+					{% for category in table_categories %}
+					<option value="{{ category }}">{{ category }}</option>
 					{% endfor %}
-					<option value="Income">Income</option>
 				</select>
 				<select id="txn-type" onchange="filterTable()">
 					<option value="">All Types</option>
 					<option value="credit">Credit</option>
 					<option value="debit">Debit</option>
 				</select>
+				<select id="txn-direction" aria-label="Amount direction" onchange="filterTable()">
+					<option value="">All Amounts</option>
+					<option value="in">Money In</option>
+					<option value="out">Money Out</option>
+				</select>
+				<button type="button" onclick="clearTableFilters()">Clear filters</button>
 			</div>
 			<table id="txn-table">
 				<thead>
 					<tr>
-						<th>Date</th>
-						<th>Description</th>
-						<th>Category</th>
-						<th>Type</th>
-						<th style="text-align: right">Amount</th>
+						<th aria-sort="none"><button class="sort-button" type="button" data-sort="date">Date <span></span></button></th>
+						<th aria-sort="none"><button class="sort-button" type="button" data-sort="description">Description <span></span></button></th>
+						<th aria-sort="none"><button class="sort-button" type="button" data-sort="category">Category <span></span></button></th>
+						<th aria-sort="none"><button class="sort-button" type="button" data-sort="type">Type <span></span></button></th>
+						<th style="text-align: right" aria-sort="none"><button class="sort-button" type="button" data-sort="amount">Amount <span></span></button></th>
 					</tr>
 				</thead>
 				<tbody>
-					{% for _, row in result.transactions.iterrows() %}
+					{% for _, row in table_transactions.iterrows() %}
 					<tr
 						data-cat="{{ row.category }}"
 						data-type="{{ row.type }}"
+						data-date="{{ row.date_iso }}"
+						data-amount="{{ row.amount }}"
 					>
 						<td style="color: var(--muted); white-space: nowrap">
 							{{ row.date }}
@@ -566,6 +624,7 @@
 				id="txn-count"
 				style="color: var(--muted); font-size: 0.8rem; margin-top: 12px"
 			></p>
+			<p id="txn-empty" role="status" hidden>No transactions match these filters. Adjust or clear your filters to see transactions.</p>
 		</div>
 
 		<p
@@ -580,28 +639,76 @@
 		</p>
 
 		<script>
+			let txnSort = { key: null, direction: "asc" };
+
 			function filterTable() {
 				const search = document
 					.getElementById("txn-search")
 					.value.toLowerCase();
 				const cat = document.getElementById("txn-cat").value;
 				const type = document.getElementById("txn-type").value;
+				const direction = document.getElementById("txn-direction").value;
+				const dateFrom = document.getElementById("txn-date-from").value;
+				const dateTo = document.getElementById("txn-date-to").value;
 				const rows = document.querySelectorAll("#txn-table tbody tr");
 				let visible = 0;
 				rows.forEach((row) => {
-					const desc = row.cells[1].textContent.toLowerCase();
+					const text = row.textContent.toLowerCase();
 					const rowCat = row.dataset.cat;
 					const rowType = row.dataset.type;
+					const rowDate = row.dataset.date;
+					const amount = Number(row.dataset.amount);
 					const show =
-						(!search || desc.includes(search)) &&
+						(!search || text.includes(search)) &&
 						(!cat || rowCat === cat) &&
-						(!type || rowType === type);
+						(!type || rowType === type) &&
+						(!direction || (direction === "in" ? amount > 0 : amount < 0)) &&
+						(!dateFrom || rowDate >= dateFrom) &&
+						(!dateTo || rowDate <= dateTo);
 					row.style.display = show ? "" : "none";
 					if (show) visible++;
 				});
 				document.getElementById("txn-count").textContent =
 					`Showing ${visible} of ${rows.length} transactions`;
+				document.getElementById("txn-empty").hidden = visible !== 0;
 			}
+
+			function clearTableFilters() {
+				document.getElementById("txn-search").value = "";
+				document.getElementById("txn-date-from").value = "";
+				document.getElementById("txn-date-to").value = "";
+				document.getElementById("txn-cat").value = "";
+				document.getElementById("txn-type").value = "";
+				document.getElementById("txn-direction").value = "";
+				filterTable();
+			}
+
+			function sortTable(key) {
+				const tbody = document.querySelector("#txn-table tbody");
+				const headers = document.querySelectorAll("#txn-table thead th");
+				txnSort.direction = txnSort.key === key && txnSort.direction === "asc" ? "desc" : "asc";
+				txnSort.key = key;
+				const column = { date: 0, description: 1, category: 2, type: 3, amount: 4 }[key];
+				const rows = Array.from(tbody.querySelectorAll("tr"));
+				rows.sort((a, b) => {
+					const av = key === "date" ? a.dataset.date : key === "amount" ? Number(a.dataset.amount) : a.cells[column].textContent.trim().toLowerCase();
+					const bv = key === "date" ? b.dataset.date : key === "amount" ? Number(b.dataset.amount) : b.cells[column].textContent.trim().toLowerCase();
+					const comparison = av < bv ? -1 : av > bv ? 1 : 0;
+					return txnSort.direction === "asc" ? comparison : -comparison;
+				});
+				rows.forEach((row) => tbody.appendChild(row));
+				headers.forEach((header) => {
+					const button = header.querySelector(".sort-button");
+					if (!button) return;
+					const active = button.dataset.sort === key;
+					header.setAttribute("aria-sort", active ? (txnSort.direction === "asc" ? "ascending" : "descending") : "none");
+					button.querySelector("span").textContent = active ? (txnSort.direction === "asc" ? "▲" : "▼") : "";
+				});
+			}
+
+			document.querySelectorAll("#txn-table .sort-button").forEach((button) => {
+				button.addEventListener("click", () => sortTable(button.dataset.sort));
+			});
 			filterTable();
 		</script>
 	</body>

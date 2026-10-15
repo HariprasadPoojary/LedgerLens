@@ -260,6 +260,42 @@ def test_report_and_review_return_404_for_missing_artifacts(client):
     assert submission.json() == {"error": "Session not found."}
 
 
+def test_report_refreshes_older_saved_html(client, tmp_path, monkeypatch):
+    session_id = "abcdef1234"
+    session_dir = tmp_path / "sessions"
+    report_dir = tmp_path / "reports"
+    transactions = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-01", "2024-01-05"]),
+            "description": ["SALARY", "RENT"],
+            "amount": [50000.0, -15000.0],
+            "type": ["credit", "debit"],
+            "category": ["Income", "Housing"],
+        }
+    )
+    with (session_dir / f"{session_id}.pkl").open("wb") as session_file:
+        pickle.dump({"df": transactions, "warnings": []}, session_file)
+    report_path = report_dir / f"report_{session_id}.html"
+    report_path.write_text('<tr data-date="01 Jan 202">old report</tr>', encoding="utf-8")
+
+    def write_current_report(analysis, output_path, session_id=None):
+        from pathlib import Path
+
+        Path(output_path).write_text(
+            f'<meta name="financial-analyzer-report-version" content="{fast_api.REPORT_VERSION}">'
+            '<tr data-date="2024-01-01">refreshed report</tr>',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(fast_api, "generate_report", write_current_report)
+
+    response = client.get(f"/report/{session_id}")
+
+    assert response.status_code == 200
+    assert 'data-date="2024-01-01"' in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
 def test_review_renders_session_and_accepts_override(client, tmp_path):
     session_id = "0123456789"
     frame = pd.DataFrame(
